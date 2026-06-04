@@ -1,0 +1,97 @@
+name: Build Isaac Lab Full Image
+
+# Trigger manually from GitHub Actions tab
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Build can take 1-3 hrs — stay well under GitHub's 6hr job limit
+    timeout-minutes: 300
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. Free up disk space
+      #    Default runner has ~14GB free — not enough for the ~18GB base
+      #    Isaac Sim image. This action removes unused tools and frees
+      #    ~30-40GB, giving us plenty of room.
+      # ---------------------------------------------------------------
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Check available disk space
+        run: df -h /
+
+      # ---------------------------------------------------------------
+      # 2. Check out the IsaacLab repo at the 2.3.2 tag
+      # ---------------------------------------------------------------
+      - name: Checkout IsaacLab v2.3.2
+        uses: actions/checkout@v4
+        with:
+          repository: isaac-sim/IsaacLab
+          ref: v2.3.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install container.py dependencies
+        run: pip install pyyaml
+
+      # ---------------------------------------------------------------
+      # 3. Authenticate with NVIDIA NGC to pull the base Isaac Sim image
+      #    NGC username is always the literal string "$oauthtoken"
+      #    NGC_API_KEY must be added as a GitHub Actions secret
+      # ---------------------------------------------------------------
+      - name: Log in to NVIDIA NGC (nvcr.io)
+        uses: docker/login-action@v3
+        with:
+          registry: nvcr.io
+          username: $oauthtoken
+          password: ${{ secrets.NGC_API_KEY }}
+
+      # ---------------------------------------------------------------
+      # 4. Authenticate with Docker Hub to push the final image
+      #    DOCKERHUB_USERNAME and DOCKERHUB_TOKEN must be added as secrets
+      # ---------------------------------------------------------------
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ---------------------------------------------------------------
+      # 5. Disable the interactive X11 forwarding prompt that
+      #    container.py shows on first run
+      # ---------------------------------------------------------------
+      - name: Disable X11 forwarding prompt
+        run: |
+          mkdir -p docker
+          echo "X11_FORWARDING_ENABLED=0" > docker/.container.cfg
+
+      # ---------------------------------------------------------------
+      # 6. Build the full Isaac Lab image
+      #    This pulls nvcr.io/nvidia/isaac-sim (~18GB) and builds
+      #    Isaac Lab layers on top → produces "isaac-lab-base"
+      # ---------------------------------------------------------------
+      - name: Build isaac-lab-base image
+        run: python docker/container.py build base
+
+      # ---------------------------------------------------------------
+      # 7. Tag and push to Docker Hub
+      # ---------------------------------------------------------------
+      - name: Tag and push to Docker Hub
+        run: |
+          docker tag isaac-lab-base ${{ secrets.DOCKERHUB_USERNAME }}/isaac-lab-full:2.3.2
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/isaac-lab-full:2.3.2
+          echo "Done! Image available at: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/isaac-lab-full:2.3.2"
