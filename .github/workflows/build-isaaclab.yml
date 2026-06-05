@@ -88,43 +88,82 @@ jobs:
         run: python docker/container.py build base
 
       # ---------------------------------------------------------------
-      # 7. Install Tailscale and set entrypoint that auto-connects on start
-      #    At runtime, set TAILSCALE_AUTHKEY env var in RunPod.
-      #    Requires privileged mode (for /dev/net/tun).
+      # 7. Add KasmVNC browser-accessible desktop + VirtualGL GPU rendering.
+      #    - Port 6901: browser connects here to see the desktop
+      #    - VirtualGL (vglrun): routes OpenGL calls to the real NVIDIA GPU
+      #    - Isaac Sim runs windowed on the virtual display (no UDP/WebRTC)
+      #    - Set VNC_PASSWORD env var in RunPod (default: isaac)
       # ---------------------------------------------------------------
-      - name: Build streaming image with Tailscale
+      - name: Build KasmVNC desktop image
         run: |
-          mkdir -p /tmp/streaming-ctx
+          mkdir -p /tmp/kasm-ctx
 
-          cat > /tmp/streaming-ctx/entrypoint.sh << 'ENTRYPOINT_SCRIPT'
-          #!/bin/sh
+          cat > /tmp/kasm-ctx/entrypoint.sh << 'ENTRYPOINT_SCRIPT'
+          #!/bin/bash
           set -e
-          if [ -z "$TAILSCALE_AUTHKEY" ]; then
-            echo "ERROR: TAILSCALE_AUTHKEY env var is not set" && exit 1
-          fi
-          tailscaled --state=/var/lib/tailscale/tailscaled.state &
-          sleep 3
-          tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="isaac-runpod" --accept-routes
-          for i in $(seq 1 15); do
-            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null) && [ -n "$TAILSCALE_IP" ] && break
-            echo "Waiting for Tailscale IP... attempt $i" && sleep 2
-          done
-          if [ -z "$TAILSCALE_IP" ]; then echo "ERROR: Could not get Tailscale IP" && exit 1; fi
-          echo "Tailscale IP: $TAILSCALE_IP"
-          exec /isaac-sim/runheadless.sh \
-            --/app/livestream/publicEndpointAddress="$TAILSCALE_IP" \
-            --/app/livestream/port=49100
+          export HOME=/root
+          export USER=root
+          export DISPLAY=:1
+
+          VNC_PASS="${VNC_PASSWORD:-isaac}"
+
+          # Create xstartup for window manager
+          mkdir -p /root/.vnc
+          printf '#!/bin/bash\nexec openbox &\n' > /root/.vnc/xstartup
+          chmod +x /root/.vnc/xstartup
+
+          # Set VNC password (try both KasmVNC formats)
+          printf '%s\n%s\nn\n' "$VNC_PASS" "$VNC_PASS" | vncpasswd 2>/dev/null || \
+            vncpasswd -u root -w -r <<< "$VNC_PASS" 2>/dev/null || true
+
+          # Start KasmVNC server (web client on port 6901)
+          vncserver :1 -geometry 1920x1080 -depth 24 -localhost no &
+          sleep 4
+          echo "KasmVNC started on port 6901 (password: $VNC_PASS)"
+
+          # Start window manager
+          DISPLAY=:1 openbox &
+          sleep 1
+
+          # Launch Isaac Sim windowed with VirtualGL GPU acceleration
+          echo "Starting Isaac Sim (takes 2-3 min)..."
+          VGL_DISPLAY=egl DISPLAY=:1 vglrun \
+            /isaac-sim/kit/kit \
+            /isaac-sim/apps/isaacsim.exp.full.kit \
+            --allow-root \
+            --merge-config=/isaac-sim/config/open_endpoint.toml \
+            --/persistent/isaac/asset_root/default="${OMNI_SERVER:-}" &
+
+          echo "Isaac Sim launching. Open https://<runpod-host>:6901 in browser."
+          wait
           ENTRYPOINT_SCRIPT
 
-          cat > /tmp/streaming-ctx/Dockerfile << 'DOCKERFILE'
+          cat > /tmp/kasm-ctx/Dockerfile << 'DOCKERFILE'
           FROM isaac-lab-base
-          RUN curl -fsSL https://tailscale.com/install.sh | sh || true
+
+          # VirtualGL: GPU-accelerated OpenGL in virtual display
+          RUN wget -q "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
+                -O /tmp/virtualgl.deb && \
+              apt-get install -y /tmp/virtualgl.deb && \
+              rm /tmp/virtualgl.deb
+
+          # KasmVNC: browser-accessible virtual desktop on port 6901
+          RUN apt-get update && \
+              apt-get install -y --no-install-recommends openbox xterm dbus-x11 libgbm1 && \
+              wget -q "https://github.com/kasmtech/KasmVNC/releases/download/v1.3.3/kasmvncserver_jammy_1.3.3_amd64.deb" \
+                -O /tmp/kasmvnc.deb && \
+              apt-get install -y /tmp/kasmvnc.deb && \
+              rm /tmp/kasmvnc.deb && \
+              apt-get clean && rm -rf /var/lib/apt/lists/*
+
           COPY entrypoint.sh /entrypoint.sh
           RUN chmod +x /entrypoint.sh
+
+          EXPOSE 6901
           CMD ["/entrypoint.sh"]
           DOCKERFILE
 
-          docker build -f /tmp/streaming-ctx/Dockerfile -t isaac-lab-base /tmp/streaming-ctx
+          docker build -f /tmp/kasm-ctx/Dockerfile -t isaac-lab-base /tmp/kasm-ctx
 
       # ---------------------------------------------------------------
       # 8. Tag and push to Docker Hub
