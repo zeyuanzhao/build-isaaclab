@@ -114,7 +114,13 @@ jobs:
           echo "Starting KasmVNC on port 6901 (user: $VNC_USER)..."
           vncserver :1 -geometry 1920x1080 -depth 24 \
             -localhost no -SecurityTypes VncAuth -websocketPort 6901 2>&1
-          sleep 3
+
+          # Wait until Xvnc is actually accepting connections
+          for i in $(seq 1 15); do
+            DISPLAY=:1 xdpyinfo >/dev/null 2>&1 && break
+            echo "Waiting for display :1... ($i/15)"
+            sleep 1
+          done
           echo "KasmVNC started"
 
           # Start window manager
@@ -160,12 +166,15 @@ jobs:
               rm /tmp/kasmvnc.deb && \
               apt-get clean && rm -rf /var/lib/apt/lists/*
 
-          # Pre-configure KasmVNC: disable SSL (RunPod proxy handles TLS)
-          # and pre-create xstartup so vncserver starts non-interactively
+          # Pre-configure KasmVNC: disable SSL (RunPod proxy handles TLS),
+          # pre-create xstartup, and stub out select-de.sh so vncserver
+          # never prompts for a desktop environment in non-interactive mode.
           RUN mkdir -p /root/.vnc
           COPY kasmvnc.yaml /root/.vnc/kasmvnc.yaml
           RUN printf '#!/bin/bash\nexec openbox &\n' > /root/.vnc/xstartup && \
               chmod +x /root/.vnc/xstartup
+          RUN printf '#!/bin/bash\nexit 0\n' > /usr/lib/kasmvncserver/select-de.sh && \
+              chmod +x /usr/lib/kasmvncserver/select-de.sh
 
           COPY entrypoint.sh /entrypoint.sh
           RUN chmod +x /entrypoint.sh
