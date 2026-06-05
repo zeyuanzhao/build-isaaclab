@@ -88,7 +88,46 @@ jobs:
         run: python docker/container.py build base
 
       # ---------------------------------------------------------------
-      # 7. Tag and push to Docker Hub
+      # 7. Install Tailscale and set entrypoint that auto-connects on start
+      #    At runtime, set TAILSCALE_AUTHKEY env var in RunPod.
+      #    Requires privileged mode (for /dev/net/tun).
+      # ---------------------------------------------------------------
+      - name: Build streaming image with Tailscale
+        run: |
+          mkdir -p /tmp/streaming-ctx
+
+          cat > /tmp/streaming-ctx/entrypoint.sh << 'ENTRYPOINT_SCRIPT'
+          #!/bin/sh
+          set -e
+          if [ -z "$TAILSCALE_AUTHKEY" ]; then
+            echo "ERROR: TAILSCALE_AUTHKEY env var is not set" && exit 1
+          fi
+          tailscaled --state=/var/lib/tailscale/tailscaled.state &
+          sleep 3
+          tailscale up --authkey="$TAILSCALE_AUTHKEY" --hostname="isaac-runpod" --accept-routes
+          for i in $(seq 1 15); do
+            TAILSCALE_IP=$(tailscale ip -4 2>/dev/null) && [ -n "$TAILSCALE_IP" ] && break
+            echo "Waiting for Tailscale IP... attempt $i" && sleep 2
+          done
+          if [ -z "$TAILSCALE_IP" ]; then echo "ERROR: Could not get Tailscale IP" && exit 1; fi
+          echo "Tailscale IP: $TAILSCALE_IP"
+          exec /isaac-sim/runheadless.sh \
+            --/app/livestream/publicEndpointAddress="$TAILSCALE_IP" \
+            --/app/livestream/port=49100
+          ENTRYPOINT_SCRIPT
+
+          cat > /tmp/streaming-ctx/Dockerfile << 'DOCKERFILE'
+          FROM isaac-lab-base
+          RUN curl -fsSL https://tailscale.com/install.sh | sh || true
+          COPY entrypoint.sh /entrypoint.sh
+          RUN chmod +x /entrypoint.sh
+          CMD ["/entrypoint.sh"]
+          DOCKERFILE
+
+          docker build -f /tmp/streaming-ctx/Dockerfile -t isaac-lab-base /tmp/streaming-ctx
+
+      # ---------------------------------------------------------------
+      # 8. Tag and push to Docker Hub
       # ---------------------------------------------------------------
       - name: Tag and push to Docker Hub
         run: |
