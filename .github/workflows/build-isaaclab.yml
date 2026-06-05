@@ -107,9 +107,16 @@ jobs:
           VNC_USER="${VNC_USER:-admin}"
           VNC_PASSWORD="${VNC_PASSWORD:-isaac}"
 
-          # Create KasmVNC user non-interactively
-          printf '%s\n%s\n' "$VNC_PASSWORD" "$VNC_PASSWORD" | \
-            vncpasswd -u "$VNC_USER" -w 2>&1 || true
+          # Write KasmVNC user directly — vncpasswd requires a TTY so we
+          # use Python's bcrypt (same algorithm KasmVNC uses) to hash the
+          # password and write the .kasmpasswd file ourselves.
+          python3 -c "
+import bcrypt, os
+user = os.environ['VNC_USER']
+pw   = os.environ['VNC_PASSWORD']
+h    = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+open('/root/.kasmpasswd', 'w').write('{0}:{1}:w\n'.format(user, h))
+"
 
           echo "Starting KasmVNC on port 6901 (user: $VNC_USER)..."
           vncserver :1 -geometry 1920x1080 -depth 24 \
@@ -148,7 +155,8 @@ jobs:
           # VirtualGL + KasmVNC + minimal desktop (single apt-get update)
           RUN apt-get update && \
               apt-get install -y --no-install-recommends \
-                openbox xterm dbus-x11 libgbm1 libxtst6 libxv1 libxfixes3 && \
+                openbox xterm dbus-x11 libgbm1 libxtst6 libxv1 libxfixes3 \
+                python3-bcrypt && \
               wget -q "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
                 -O /tmp/virtualgl.deb && \
               apt-get install -y /tmp/virtualgl.deb && \
