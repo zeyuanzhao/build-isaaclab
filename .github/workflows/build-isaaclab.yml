@@ -104,8 +104,8 @@ jobs:
           export USER=root
           export DISPLAY=:1
 
-          VNC_USER="${VNC_USER:-admin}"
-          VNC_PASSWORD="${VNC_PASSWORD:-isaac}"
+          export VNC_USER="${VNC_USER:-admin}"
+          export VNC_PASSWORD="${VNC_PASSWORD:-isaac}"
 
           # Write KasmVNC user directly (vncpasswd requires a TTY).
           # KasmVNC uses SHA-256 crypt with fixed salt "kasm".
