@@ -109,10 +109,7 @@ jobs:
 
           # Create xstartup for window manager
           mkdir -p /root/.vnc
-          cat > /root/.vnc/xstartup << 'XSTARTUP'
-          #!/bin/bash
-          exec openbox &
-          XSTARTUP
+          printf '#!/bin/bash\nexec openbox &\n' > /root/.vnc/xstartup
           chmod +x /root/.vnc/xstartup
 
           # Set VNC password (try both KasmVNC formats)
@@ -120,17 +117,15 @@ jobs:
             vncpasswd -u root -w -r <<< "$VNC_PASS" 2>/dev/null || true
 
           # Start KasmVNC server (web client on port 6901)
-          vncserver :1 -geometry 1920x1080 -depth 24 -localhost no 2>&1 | head -5 &
+          vncserver :1 -geometry 1920x1080 -depth 24 -localhost no &
           sleep 4
-          echo "KasmVNC started — browser access on port 6901 (password: $VNC_PASS)"
+          echo "KasmVNC started on port 6901 (password: $VNC_PASS)"
 
-          # Start window manager on the virtual display
+          # Start window manager
           DISPLAY=:1 openbox &
           sleep 1
 
           # Launch Isaac Sim windowed with VirtualGL GPU acceleration
-          # VGL_DISPLAY=egl: render on GPU via EGL (no physical display needed)
-          # DISPLAY=:1: show the window on KasmVNC's virtual display
           echo "Starting Isaac Sim (takes 2-3 min)..."
           VGL_DISPLAY=egl DISPLAY=:1 vglrun \
             /isaac-sim/kit/kit \
@@ -139,14 +134,14 @@ jobs:
             --merge-config=/isaac-sim/config/open_endpoint.toml \
             --/persistent/isaac/asset_root/default="${OMNI_SERVER:-}" &
 
-          echo "Isaac Sim launching. Open https://<runpod-host>:6901 in your browser."
+          echo "Isaac Sim launching. Open https://<runpod-host>:6901 in browser."
           wait
           ENTRYPOINT_SCRIPT
 
           cat > /tmp/kasm-ctx/Dockerfile << 'DOCKERFILE'
           FROM isaac-lab-base
 
-          # VirtualGL: GPU-accelerated OpenGL in a virtual display
+          # VirtualGL: GPU-accelerated OpenGL in virtual display
           RUN wget -q "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
                 -O /tmp/virtualgl.deb && \
               apt-get install -y /tmp/virtualgl.deb && \
