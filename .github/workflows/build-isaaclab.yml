@@ -100,32 +100,30 @@ jobs:
 
           cat > /tmp/kasm-ctx/entrypoint.sh << 'ENTRYPOINT_SCRIPT'
           #!/bin/bash
-          set -e
           export HOME=/root
           export USER=root
           export DISPLAY=:1
 
-          VNC_PASS="${VNC_PASSWORD:-isaac}"
-
-          # Create xstartup for window manager
+          # Start KasmVNC — no password required (RunPod proxy handles TLS)
           mkdir -p /root/.vnc
           printf '#!/bin/bash\nexec openbox &\n' > /root/.vnc/xstartup
           chmod +x /root/.vnc/xstartup
 
-          # Set VNC password (try both KasmVNC formats)
-          printf '%s\n%s\nn\n' "$VNC_PASS" "$VNC_PASS" | vncpasswd 2>/dev/null || \
-            vncpasswd -u root -w -r <<< "$VNC_PASS" 2>/dev/null || true
-
-          # Start KasmVNC server (web client on port 6901)
-          vncserver :1 -geometry 1920x1080 -depth 24 -localhost no &
-          sleep 4
-          echo "KasmVNC started on port 6901 (password: $VNC_PASS)"
+          echo "Starting KasmVNC..."
+          vncserver :1 -geometry 1920x1080 -depth 24 -localhost no -SecurityTypes None 2>&1
+          VNC_EXIT=$?
+          if [ $VNC_EXIT -ne 0 ]; then
+            echo "vncserver exited with $VNC_EXIT, retrying without SecurityTypes flag..."
+            vncserver :1 -geometry 1920x1080 -depth 24 -localhost no 2>&1 || true
+          fi
+          sleep 3
+          echo "KasmVNC launched (port 6901)"
 
           # Start window manager
           DISPLAY=:1 openbox &
           sleep 1
 
-          # Launch Isaac Sim windowed with VirtualGL GPU acceleration
+          # Launch Isaac Sim with VirtualGL GPU acceleration
           echo "Starting Isaac Sim (takes 2-3 min)..."
           VGL_DISPLAY=egl DISPLAY=:1 vglrun \
             /isaac-sim/kit/kit \
