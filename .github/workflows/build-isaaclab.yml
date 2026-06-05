@@ -100,43 +100,41 @@ jobs:
 
           cat > /tmp/kasm-ctx/entrypoint.sh << 'ENTRYPOINT_SCRIPT'
           #!/bin/bash
-          set -e
           export HOME=/root
           export USER=root
           export DISPLAY=:1
 
-          VNC_PASS="${VNC_PASSWORD:-isaac}"
-
-          # Create xstartup for window manager
-          mkdir -p /root/.vnc
-          printf '#!/bin/bash\nexec openbox &\n' > /root/.vnc/xstartup
-          chmod +x /root/.vnc/xstartup
-
-          # Set VNC password (try both KasmVNC formats)
-          printf '%s\n%s\nn\n' "$VNC_PASS" "$VNC_PASS" | vncpasswd 2>/dev/null || \
-            vncpasswd -u root -w -r <<< "$VNC_PASS" 2>/dev/null || true
-
-          # Start KasmVNC server (web client on port 6901)
-          vncserver :1 -geometry 1920x1080 -depth 24 -localhost no &
-          sleep 4
-          echo "KasmVNC started on port 6901 (password: $VNC_PASS)"
+          echo "Starting KasmVNC on port 6901..."
+          # Answer interactive prompts: "2" = no user, "1" = manually edit xstartup
+          printf '2\n1\n' | vncserver :1 -geometry 1920x1080 -depth 24 \
+            -localhost no -SecurityTypes None -websocketPort 6901 2>&1
+          sleep 3
+          echo "KasmVNC started"
 
           # Start window manager
           DISPLAY=:1 openbox &
           sleep 1
 
-          # Launch Isaac Sim windowed with VirtualGL GPU acceleration
+          # Launch Isaac Sim with VirtualGL GPU acceleration
           echo "Starting Isaac Sim (takes 2-3 min)..."
           VGL_DISPLAY=egl DISPLAY=:1 vglrun \
-            /isaac-sim/kit/kit \
-            /isaac-sim/apps/isaacsim.exp.full.kit \
+            /isaac-sim/isaac-sim.sh \
             --allow-root \
-            --merge-config=/isaac-sim/config/open_endpoint.toml \
             --/persistent/isaac/asset_root/default="${OMNI_SERVER:-}" &
 
           echo "Isaac Sim launching. Open https://<runpod-host>:6901 in browser."
           wait
           ENTRYPOINT_SCRIPT
+
+          cat > /tmp/kasm-ctx/kasmvnc.yaml << 'KASMVNC_YAML'
+          logging:
+            log_writer_name: all
+            log_dest: logfile
+            level: 100
+          network:
+            ssl:
+              require_ssl: false
+          KASMVNC_YAML
 
           cat > /tmp/kasm-ctx/Dockerfile << 'DOCKERFILE'
           FROM isaac-lab-base
@@ -155,11 +153,18 @@ jobs:
               rm /tmp/kasmvnc.deb && \
               apt-get clean && rm -rf /var/lib/apt/lists/*
 
+          # Pre-configure KasmVNC: disable SSL (RunPod proxy handles TLS)
+          # and pre-create xstartup so vncserver starts non-interactively
+          RUN mkdir -p /root/.vnc
+          COPY kasmvnc.yaml /root/.vnc/kasmvnc.yaml
+          RUN printf '#!/bin/bash\nexec openbox &\n' > /root/.vnc/xstartup && \
+              chmod +x /root/.vnc/xstartup
+
           COPY entrypoint.sh /entrypoint.sh
           RUN chmod +x /entrypoint.sh
 
           EXPOSE 6901
-          CMD ["/entrypoint.sh"]
+          ENTRYPOINT ["/entrypoint.sh"]
           DOCKERFILE
 
           docker build -f /tmp/kasm-ctx/Dockerfile -t isaac-lab-base /tmp/kasm-ctx
