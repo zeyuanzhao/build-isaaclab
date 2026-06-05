@@ -77,7 +77,7 @@ jobs:
       - name: Disable X11 forwarding prompt
         run: |
           mkdir -p docker
-          printf '[DEFAULT]\nX11_FORWARDING_ENABLED = 0\n' > docker/.container.cfg
+          printf '[X11]\nX11_FORWARDING_ENABLED = 0\n' > docker/.container.cfg
 
       # ---------------------------------------------------------------
       # 6. Build the full Isaac Lab image
