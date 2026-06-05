@@ -94,7 +94,7 @@ jobs:
         run: |
           cat > /tmp/Dockerfile.cmd <<'EOF'
           FROM isaac-lab-base
-          CMD ["sh", "-c", "/isaac-sim/runheadless.sh --/app/livestream/publicEndpointAddress=${PUBLIC_IP} --/app/livestream/port=49100"]
+          CMD ["sh", "-c", "RESOLVED_IP=${PUBLIC_IP:-$(curl -s ifconfig.me)} && /isaac-sim/runheadless.sh --/app/livestream/publicEndpointAddress=${RESOLVED_IP} --/app/livestream/port=49100"]
           EOF
           docker build -f /tmp/Dockerfile.cmd -t isaac-lab-base /tmp
 
