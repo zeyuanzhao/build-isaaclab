@@ -104,10 +104,16 @@ jobs:
           export USER=root
           export DISPLAY=:1
 
-          echo "Starting KasmVNC on port 6901..."
-          # Answer interactive prompts: "2" = no user, "1" = manually edit xstartup
-          printf '2\n1\n' | vncserver :1 -geometry 1920x1080 -depth 24 \
-            -localhost no -SecurityTypes None -websocketPort 6901 2>&1
+          VNC_USER="${VNC_USER:-admin}"
+          VNC_PASSWORD="${VNC_PASSWORD:-isaac}"
+
+          # Create KasmVNC user non-interactively
+          printf '%s\n%s\n' "$VNC_PASSWORD" "$VNC_PASSWORD" | \
+            vncpasswd -u "$VNC_USER" -w 2>&1 || true
+
+          echo "Starting KasmVNC on port 6901 (user: $VNC_USER)..."
+          vncserver :1 -geometry 1920x1080 -depth 24 \
+            -localhost no -SecurityTypes VncAuth -websocketPort 6901 2>&1
           sleep 3
           echo "KasmVNC started"
 
