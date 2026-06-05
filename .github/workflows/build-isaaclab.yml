@@ -157,7 +157,7 @@ jobs:
           RUN chmod +x /entrypoint.sh
 
           EXPOSE 6901
-          CMD ["/entrypoint.sh"]
+          ENTRYPOINT ["/entrypoint.sh"]
           DOCKERFILE
 
           docker build -f /tmp/kasm-ctx/Dockerfile -t isaac-lab-base /tmp/kasm-ctx
