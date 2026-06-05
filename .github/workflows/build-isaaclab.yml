@@ -149,7 +149,7 @@ jobs:
                 -O /tmp/virtualgl.deb && \
               apt-get install -y /tmp/virtualgl.deb && \
               rm /tmp/virtualgl.deb && \
-              wget -q "https://github.com/kasmtech/KasmVNC/releases/download/v1.3.3/kasmvncserver_jammy_1.3.3_amd64.deb" \
+              wget -q "https://github.com/kasmtech/KasmVNC/releases/download/v1.3.3/kasmvncserver_noble_1.3.3_amd64.deb" \
                 -O /tmp/kasmvnc.deb && \
               apt-get install -y /tmp/kasmvnc.deb && \
               rm /tmp/kasmvnc.deb && \
