@@ -107,16 +107,9 @@ jobs:
           VNC_USER="${VNC_USER:-admin}"
           VNC_PASSWORD="${VNC_PASSWORD:-isaac}"
 
-          # Write KasmVNC user directly — vncpasswd requires a TTY so we
-          # generate the hash ourselves. KasmVNC uses SHA-256 crypt with
-          # the fixed salt "kasm" (confirmed from /root/.kasmpasswd output).
-          python3 -c "
-import crypt, os
-user = os.environ['VNC_USER']
-pw   = os.environ['VNC_PASSWORD']
-h    = crypt.crypt(pw, '\$5\$kasm\$')
-open('/root/.kasmpasswd', 'w').write('{0}:{1}:w\n'.format(user, h))
-"
+          # Write KasmVNC user directly (vncpasswd requires a TTY).
+          # KasmVNC uses SHA-256 crypt with fixed salt "kasm".
+          python3 -c "import crypt,os; u=os.environ['VNC_USER']; p=os.environ['VNC_PASSWORD']; h=crypt.crypt(p,'$5$kasm$'); open('/root/.kasmpasswd','w').write(u+':'+h+':w\n')"
 
           echo "Starting KasmVNC on port 6901 (user: $VNC_USER)..."
           vncserver :1 -geometry 1920x1080 -depth 24 \
