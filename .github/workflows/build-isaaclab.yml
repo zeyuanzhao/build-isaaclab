@@ -104,6 +104,14 @@ jobs:
           export USER=root
           export DISPLAY=:1
 
+          # SSH setup: RunPod injects PUBLIC_KEY env var at container start
+          if [ -n "$PUBLIC_KEY" ]; then
+              mkdir -p ~/.ssh && chmod 700 ~/.ssh
+              echo "$PUBLIC_KEY" >> ~/.ssh/authorized_keys
+              chmod 600 ~/.ssh/authorized_keys
+          fi
+          service ssh start
+
           export VNC_USER="${VNC_USER:-admin}"
           export VNC_PASSWORD="${VNC_PASSWORD:-isaac}"
 
@@ -155,7 +163,7 @@ jobs:
           RUN apt-get update && \
               apt-get install -y --no-install-recommends \
                 openbox xterm dbus-x11 libgbm1 libxtst6 libxv1 libxfixes3 \
-                python3-bcrypt && \
+                python3-bcrypt openssh-server && \
               wget -q "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
                 -O /tmp/virtualgl.deb && \
               apt-get install -y /tmp/virtualgl.deb && \
@@ -176,10 +184,13 @@ jobs:
           RUN printf '#!/bin/bash\nexit 0\n' > /usr/lib/kasmvncserver/select-de.sh && \
               chmod +x /usr/lib/kasmvncserver/select-de.sh
 
+          RUN mkdir /run/sshd && \
+              sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
           COPY entrypoint.sh /entrypoint.sh
           RUN chmod +x /entrypoint.sh
 
-          EXPOSE 6901
+          EXPOSE 22 6901
           ENTRYPOINT ["/entrypoint.sh"]
           DOCKERFILE
 
