@@ -104,6 +104,22 @@ jobs:
           export USER=root
           export DISPLAY=:1
 
+          # RunPod mounts persistent storage at /workspace, which can hide
+          # the Isaac Lab checkout baked into the image. Keep the official
+          # Isaac Lab path available without copying repo contents into the
+          # volume unless the user explicitly creates it there.
+          mkdir -p /workspace/projects
+          if [ ! -e /workspace/isaaclab ]; then
+              ln -s /opt/isaaclab-seed /workspace/isaaclab
+              echo "Linked /workspace/isaaclab -> /opt/isaaclab-seed"
+          elif [ -L /workspace/isaaclab ]; then
+              echo "/workspace/isaaclab symlink already exists"
+          elif [ -f /workspace/isaaclab/isaaclab.sh ]; then
+              echo "/workspace/isaaclab already exists; leaving it unchanged"
+          else
+              echo "WARNING: /workspace/isaaclab exists but does not look like Isaac Lab; leaving it unchanged"
+          fi
+
           # SSH setup: RunPod injects PUBLIC_KEY env var at container start
           if [ -n "$PUBLIC_KEY" ]; then
               mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -158,6 +174,10 @@ jobs:
 
           cat > /tmp/kasm-ctx/Dockerfile << 'DOCKERFILE'
           FROM isaac-lab-base
+
+          # Preserve the official Isaac Lab checkout outside /workspace so
+          # RunPod's /workspace volume mount cannot hide the only copy.
+          RUN cp -a /workspace/isaaclab /opt/isaaclab-seed
 
           # VirtualGL + KasmVNC + minimal desktop (single apt-get update)
           RUN apt-get update && \
