@@ -109,6 +109,9 @@ jobs:
           # Isaac Lab path available without copying repo contents into the
           # volume unless the user explicitly creates it there.
           mkdir -p /workspace/projects
+          if [ -d /workspace/isaaclab ] && [ -z "$(find /workspace/isaaclab -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+              rmdir /workspace/isaaclab
+          fi
           if [ ! -e /workspace/isaaclab ]; then
               ln -s /opt/isaaclab-seed /workspace/isaaclab
               echo "Linked /workspace/isaaclab -> /opt/isaaclab-seed"
@@ -174,6 +177,14 @@ jobs:
 
           cat > /tmp/kasm-ctx/Dockerfile << 'DOCKERFILE'
           FROM isaac-lab-base
+
+          # Work around flatdict's legacy pkg_resources build dependency,
+          # then ensure the core isaaclab package is installed. The upstream
+          # installer can continue after this dependency error, leaving only
+          # isaaclab_* extension packages installed.
+          RUN /isaac-sim/python.sh -m pip install --no-build-isolation flatdict==4.0.1 && \
+              cd /workspace/isaaclab && \
+              /isaac-sim/python.sh -m pip install -e source/isaaclab
 
           # Preserve the official Isaac Lab checkout outside /workspace so
           # RunPod's /workspace volume mount cannot hide the only copy.
