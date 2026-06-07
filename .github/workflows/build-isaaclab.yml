@@ -103,6 +103,7 @@ jobs:
           export HOME=/root
           export USER=root
           export DISPLAY=:1
+          cd /root
 
           # RunPod mounts persistent storage at /workspace, which can hide
           # the Isaac Lab checkout baked into the image. Keep the official
@@ -139,13 +140,20 @@ jobs:
           python3 -c "import crypt,os; u=os.environ['VNC_USER']; p=os.environ['VNC_PASSWORD']; h=crypt.crypt(p,'\$5\$kasm\$'); open('/root/.kasmpasswd','w').write(u+':'+h+':w\n')"
 
           echo "Starting KasmVNC on port 6901 (user: $VNC_USER)..."
+          rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 /root/.vnc/*.pid
           vncserver :1 -geometry 1920x1080 -depth 24 \
             -localhost no -SecurityTypes VncAuth -websocketPort 6901 2>&1
 
-          # Wait until Xvnc is actually accepting connections
+          # Wait until KasmVNC's browser websocket port is accepting connections.
           for i in $(seq 1 15); do
-            DISPLAY=:1 xdpyinfo >/dev/null 2>&1 && break
-            echo "Waiting for display :1... ($i/15)"
+            python3 - <<'PY' && break
+          import socket
+          s = socket.socket()
+          s.settimeout(1)
+          s.connect(("127.0.0.1", 6901))
+          s.close()
+          PY
+            echo "Waiting for KasmVNC websocket port 6901... ($i/15)"
             sleep 1
           done
           echo "KasmVNC started"
