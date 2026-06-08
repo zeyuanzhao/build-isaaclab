@@ -91,7 +91,8 @@ jobs:
       # 7. Add KasmVNC browser-accessible desktop + VirtualGL GPU rendering.
       #    - Port 6901: browser connects here to see the desktop
       #    - VirtualGL (vglrun): routes OpenGL calls to the real NVIDIA GPU
-      #    - Isaac Sim runs windowed on the virtual display (no UDP/WebRTC)
+      #    - vncgl wraps commands with VirtualGL and the VNC display
+      #    - Isaac Sim is launched manually, not at container startup
       #    - Set VNC_PASSWORD env var in RunPod (default: isaac)
       # ---------------------------------------------------------------
       - name: Build KasmVNC desktop image
@@ -102,7 +103,9 @@ jobs:
           #!/bin/bash
           export HOME=/root
           export USER=root
-          export DISPLAY=:1
+          export VNCGL_DISPLAY="${VNCGL_DISPLAY:-1}"
+          export DISPLAY=":${VNCGL_DISPLAY#:}"
+          export VGL_DISPLAY="${VGL_DISPLAY:-egl}"
           cd /root
 
           # RunPod mounts persistent storage at /workspace, which can hide
@@ -139,9 +142,9 @@ jobs:
           # KasmVNC uses SHA-256 crypt with fixed salt "kasm".
           python3 -c "import crypt,os; u=os.environ['VNC_USER']; p=os.environ['VNC_PASSWORD']; h=crypt.crypt(p,'\$5\$kasm\$'); open('/root/.kasmpasswd','w').write(u+':'+h+':w\n')"
 
-          echo "Starting KasmVNC on port 6901 (user: $VNC_USER)..."
-          rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 /root/.vnc/*.pid
-          vncserver :1 -geometry 1920x1080 -depth 24 \
+          echo "Starting KasmVNC on port 6901 (display: $DISPLAY, user: $VNC_USER)..."
+          rm -f "/tmp/.X${VNCGL_DISPLAY#:}-lock" "/tmp/.X11-unix/X${VNCGL_DISPLAY#:}" /root/.vnc/*.pid
+          vncserver "$DISPLAY" -geometry 1920x1080 -depth 24 \
             -localhost no -SecurityTypes VncAuth -websocketPort 6901 2>&1
 
           # Wait until KasmVNC's browser websocket port is accepting connections.
@@ -159,19 +162,39 @@ jobs:
           echo "KasmVNC started"
 
           # Start window manager
-          DISPLAY=:1 openbox &
+          DISPLAY="$DISPLAY" openbox &
           sleep 1
 
-          # Launch Isaac Sim with VirtualGL GPU acceleration
-          echo "Starting Isaac Sim (takes 2-3 min)..."
-          VGL_DISPLAY=egl DISPLAY=:1 vglrun \
-            /isaac-sim/isaac-sim.sh \
-            --allow-root \
-            --/persistent/isaac/asset_root/default="${OMNI_SERVER:-}" &
-
-          echo "Isaac Sim launching. Open https://<runpod-host>:6901 in browser."
-          wait
+          echo "Container ready. Open https://<runpod-host>:6901 in browser."
+          echo "Run GUI commands with: vncgl <command> [args...]"
+          tail -f /dev/null
           ENTRYPOINT_SCRIPT
+
+          cat > /tmp/kasm-ctx/vncgl << 'VNCGL_SCRIPT'
+          #!/usr/bin/env bash
+          set -e
+
+          display="${VNCGL_DISPLAY:-1}"
+
+          if [[ "${1:-}" == "-d" || "${1:-}" == "--display" ]]; then
+            if [[ -z "${2:-}" ]]; then
+              echo "vncgl: --display requires a value, for example: --display 1" >&2
+              exit 2
+            fi
+            display="$2"
+            shift 2
+          fi
+
+          if [[ $# -eq 0 ]]; then
+            echo "usage: vncgl [--display N] <command> [args...]" >&2
+            exit 2
+          fi
+
+          export DISPLAY=":${display#:}"
+          export VGL_DISPLAY="${VGL_DISPLAY:-egl}"
+
+          exec vglrun "$@"
+          VNCGL_SCRIPT
 
           cat > /tmp/kasm-ctx/kasmvnc.yaml << 'KASMVNC_YAML'
           logging:
@@ -228,6 +251,9 @@ jobs:
 
           COPY entrypoint.sh /entrypoint.sh
           RUN chmod +x /entrypoint.sh
+          COPY vncgl /usr/local/bin/vncgl
+          RUN chmod +x /usr/local/bin/vncgl && \
+              printf 'export VNCGL_DISPLAY="${VNCGL_DISPLAY:-1}"\nexport DISPLAY="${DISPLAY:-:${VNCGL_DISPLAY#:}}"\nexport VGL_DISPLAY="${VGL_DISPLAY:-egl}"\n' > /etc/profile.d/vncgl.sh
 
           EXPOSE 22 6901
           ENTRYPOINT ["/entrypoint.sh"]
