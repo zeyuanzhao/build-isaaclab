@@ -90,6 +90,7 @@ jobs:
       # ---------------------------------------------------------------
       # 7. Add KasmVNC browser-accessible desktop + VirtualGL GPU rendering.
       #    - Port 6901: browser connects here to see the desktop
+      #    - Port 5901: native VNC clients connect here
       #    - VirtualGL (vglrun): routes OpenGL calls to the real NVIDIA GPU
       #    - vncgl wraps commands with VirtualGL and the VNC display
       #    - Isaac Sim is launched manually, not at container startup
@@ -165,7 +166,30 @@ jobs:
           DISPLAY="$DISPLAY" openbox &
           sleep 1
 
+          # Keep VNC clipboard and X clipboard selections in sync.
+          DISPLAY="$DISPLAY" autocutsel -fork || true
+          DISPLAY="$DISPLAY" autocutsel -selection PRIMARY -fork || true
+
+          # Mirror the same X display over standard VNC for native clients
+          # such as TigerVNC. x11vnc uses the same password env as KasmVNC.
+          mkdir -p /root/.vnc
+          x11vnc -storepasswd "$VNC_PASSWORD" /root/.vnc/x11vnc.pass
+          chmod 600 /root/.vnc/x11vnc.pass
+          x11vnc -display "$DISPLAY" \
+            -rfbport 5901 \
+            -listen 0.0.0.0 \
+            -rfbauth /root/.vnc/x11vnc.pass \
+            -forever \
+            -shared \
+            -noxdamage \
+            -repeat \
+            -xkb \
+            -bg \
+            -o /tmp/x11vnc.log
+          echo "x11vnc started on port 5901"
+
           echo "Container ready. Open https://<runpod-host>:6901 in browser."
+          echo "Native VNC is available on exposed TCP port 5901."
           echo "Run GUI commands with: vncgl <command> [args...]"
           tail -f /dev/null
           ENTRYPOINT_SCRIPT
@@ -221,11 +245,11 @@ jobs:
           # RunPod's /workspace volume mount cannot hide the only copy.
           RUN cp -a /workspace/isaaclab /opt/isaaclab-seed
 
-          # VirtualGL + KasmVNC + minimal desktop (single apt-get update)
+          # VirtualGL + KasmVNC + x11vnc + minimal desktop (single apt-get update)
           RUN apt-get update && \
               apt-get install -y --no-install-recommends \
                 openbox xterm dbus-x11 libgbm1 libxtst6 libxv1 libxfixes3 \
-                python3-bcrypt openssh-server && \
+                python3-bcrypt openssh-server x11vnc autocutsel xclip xsel && \
               wget -q "https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb" \
                 -O /tmp/virtualgl.deb && \
               apt-get install -y /tmp/virtualgl.deb && \
@@ -255,7 +279,7 @@ jobs:
           RUN chmod +x /usr/local/bin/vncgl && \
               printf 'export VNCGL_DISPLAY="${VNCGL_DISPLAY:-1}"\nexport DISPLAY="${DISPLAY:-:${VNCGL_DISPLAY#:}}"\nexport VGL_DISPLAY="${VGL_DISPLAY:-egl}"\n' > /etc/profile.d/vncgl.sh
 
-          EXPOSE 22 6901
+          EXPOSE 22 5901 6901
           ENTRYPOINT ["/entrypoint.sh"]
           DOCKERFILE
 
